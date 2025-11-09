@@ -8,6 +8,7 @@ import 'dart:async';
 
 
 
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -31,6 +32,7 @@ void main() async {
     // Kirim ke log / analytics Anda di sini
     // print('Uncaught: $error\n$stack');
   });
+
 
   runApp(const MyApp());
 }

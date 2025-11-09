@@ -6,6 +6,8 @@ import 'edit_crime_page.dart';
 import 'view_crime_page.dart';
 
 
+enum _NoticeType { success, info, warning, error }
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -87,19 +89,75 @@ Future<void> _runStartupFix() async {
     if (r != null) {
       await repo.create(r);
       await _refresh();
-      _notify('Report created successfully'); // ✅ notifikasi
+      _notify('Report created successfully', type: _NoticeType.success);
     }
   }
 
-  void _notify(String msg) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(msg),
+  void _notify(
+    String message, {
+    _NoticeType type = _NoticeType.info,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+
+    // Tentukan warna & ikon per tipe
+    late final Color bg;
+    late final IconData icon;
+    switch (type) {
+      case _NoticeType.success:
+        bg = cs.primaryContainer;
+        icon = Icons.check_circle_rounded;
+        break;
+      case _NoticeType.info:
+        bg = cs.surfaceContainerHighest;
+        icon = Icons.info_rounded;
+        break;
+      case _NoticeType.warning:
+        bg = Colors.orange.shade700;
+        icon = Icons.warning_amber_rounded;
+        break;
+      case _NoticeType.error:
+        bg = Colors.red.shade700;
+        icon = Icons.error_rounded;
+        break;
+    }
+
+    final snack = SnackBar(
+      content: Row(
+        children: [
+          Icon(icon, color: cs.onPrimaryContainer),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+      backgroundColor: bg,
       behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-    ),
-  );
-}
+      elevation: 8,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      duration: const Duration(milliseconds: 1600),
+      action: (actionLabel != null && onAction != null)
+          ? SnackBarAction(
+              label: actionLabel,
+              onPressed: onAction,
+              textColor: cs.primary,
+            )
+          : null,
+    );
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.removeCurrentSnackBar();
+    messenger.showSnackBar(snack);
+  }
 
 Future<T?> _showTopSheet<T>({
   required BuildContext context,
@@ -219,7 +277,7 @@ Future<T?> _showTopSheet<T>({
     if (ok == true) {
       await repo.delete(c.id);
       await _refresh();
-      _notify('Report deleted'); // ✅ notifikasi
+      _notify('Report deleted', type: _NoticeType.warning);
     }
   }
 
@@ -525,11 +583,11 @@ Future<T?> _showTopSheet<T>({
                                             if (idx != -1) {
                                               setState(() => items[idx] = result);
                                             }
-                                            _notify('Report updated');
+                                            _notify('Report updated', type: _NoticeType.success);
                                           } else if (result == true) {
                                             // DELETE → refresh dari DB
                                             await _refresh();
-                                            _notify('Report deleted');
+                                            _notify('Report deleted', type: _NoticeType.warning);
                                           }
                                         },
                                     onDelete: () => _delete(items[i]),

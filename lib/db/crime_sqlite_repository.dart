@@ -176,6 +176,8 @@ Future<void> deleteSampleData() async {
   print('✅ Berhasil hapus sample data');
 }
 
+
+
 Future<List<CrimeReport>> getAllCrimes() async {
   final db = await CrimeDbHelper.instance.database;
   final List<Map<String, dynamic>> maps = await db.query(
@@ -194,36 +196,50 @@ Future<int> getTotalDataCount() async {
   return count ?? 0;
 }
 
-  /// Bersihkan baris yang 'photo_path'-nya tidak bisa dipakai lagi.
   Future<int> fixInvalidPhotoPaths() async {
-    final db = await _db;
-    final rows = await db.query(
-      'crime_reports',
-      columns: ['id', 'photo_path'],
-    );
+  final db = await _db;
+  final rows = await db.query(
+    'crime_reports',
+    columns: ['id', 'photo_path'],
+  );
 
-    int fixed = 0;
-    for (final r in rows) {
-      final id = r['id'] as String;
-      final path = r['photo_path'] as String?;
+  int fixed = 0;
+  for (final r in rows) {
+    final id = r['id'] as String;
+    final pathString = r['photo_path'] as String?;
 
-      if (path == null || path.trim().isEmpty) continue;
+    if (pathString == null || pathString.trim().isEmpty) continue;
 
-      final isContentUri = path.startsWith('content://'); // tidak bisa dipakai langsung
+    // ✅ UPDATE: Handle multiple paths
+    final paths = pathString.split('|');
+    final validPaths = <String>[];
+    
+    for (final path in paths) {
+      if (path.trim().isEmpty) continue;
+      
+      final isContentUri = path.startsWith('content://');
       final exists = !isContentUri && File(path).existsSync();
-
-      if (!exists) {
-        await db.update(
-          'crime_reports',
-          {'photo_path': null},
-          where: 'id = ?',
-          whereArgs: [id],
-        );
-        fixed++;
+      
+      if (exists) {
+        validPaths.add(path);
       }
     }
-    return fixed;
+    
+    // Update database dengan paths yang valid
+    final newPathString = validPaths.isNotEmpty ? validPaths.join('|') : null;
+    
+    if (newPathString != pathString) {
+      await db.update(
+        'crime_reports',
+        {'photo_path': newPathString},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      fixed++;
+    }
   }
+  return fixed;
+}
   
 
   @override

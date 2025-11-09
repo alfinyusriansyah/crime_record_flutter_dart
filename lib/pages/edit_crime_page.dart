@@ -18,10 +18,13 @@ class _EditCrimePageState extends State<EditCrimePage> {
   late String _title, _desc, _loc, _name, _severity;
   late DateTime _date;
 
-  // Foto
-  String? _photoPath;          // foto lama (dari initial)    
-  String? _tempImagePath;       // foto sementara (belum disimpan)
+  // ✅ UPDATE: Multiple photos state
+  final List<String> _existingPhotoPaths = []; // foto lama dari initial
+  final List<String> _newPhotoPaths = [];      // foto baru yang dipilih
+  final List<String> _removedPhotoPaths = [];  // foto lama yang dihapus
+  
   final _picker = ImagePicker();
+  final int _maxPhotos = 3;
 
   @override
   void initState() {
@@ -33,31 +36,38 @@ class _EditCrimePageState extends State<EditCrimePage> {
     _name      = c?.name ?? '';
     _severity  = c?.severity ?? 'medium';
     _date      = c?.date ?? DateTime.now();
-    _photoPath = c?.photoPath;   // foto lama (jika ada)
-    _tempImagePath = null;       // preview baru (jika user pilih)
+    
+    // ✅ UPDATE: Initialize existing photos
+    if (c?.photoPaths != null) {
+      _existingPhotoPaths.addAll(c!.photoPaths);
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkAndPromptRepickIfMissing());
   }
 
   Future<void> _checkAndPromptRepickIfMissing() async {
-    if (_photoPath == null) return;
-    final ok = await File(_photoPath!).exists();
-    if (!ok && mounted) {
-      _photoPath = null; // buang referensi lama
-      // prompt re-pick
+    if (_existingPhotoPaths.isEmpty) return;
+    
+    final missingPhotos = <String>[];
+    for (final path in _existingPhotoPaths) {
+      final exists = await File(path).exists();
+      if (!exists) {
+        missingPhotos.add(path);
+      }
+    }
+    
+    if (missingPhotos.isNotEmpty && mounted) {
+      _existingPhotoPaths.removeWhere((path) => missingPhotos.contains(path));
+      
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Foto tidak ditemukan'),
-          content: const Text('File foto lama tidak tersedia. Pilih foto baru?'),
+          content: Text('${missingPhotos.length} foto lama tidak tersedia.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Nanti')),
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _pickFromGallery();
-              },
-              child: const Text('Pilih Sekarang'),
+              onPressed: () => Navigator.pop(context), 
+              child: const Text('OK')
             ),
           ],
         ),
@@ -73,20 +83,63 @@ class _EditCrimePageState extends State<EditCrimePage> {
     return nf.path;
   }
 
+  // ✅ UPDATE: Pick multiple photos dengan limit
   Future<void> _pickFromCamera() async {
+    if (_getTotalPhotoCount() >= _maxPhotos) {
+      _showMaxPhotoAlert();
+      return;
+    }
+    
     final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
     if (x == null) return;
+    
+    final savedPath = await _saveToAppDir(x.path);
     setState(() {
-      _tempImagePath = x.path;   // hanya preview
+      _newPhotoPaths.add(savedPath);
     });
   }
 
   Future<void> _pickFromGallery() async {
-    final x = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (_getTotalPhotoCount() >= _maxPhotos) {
+      _showMaxPhotoAlert();
+      return;
+    }
+    
+    final remainingSlots = _maxPhotos - _getTotalPhotoCount();
+    final x = await _picker.pickImage(
+      source: ImageSource.gallery, 
+      imageQuality: 85,
+    );
     if (x == null) return;
+    
+    final savedPath = await _saveToAppDir(x.path);
     setState(() {
-      _tempImagePath = x.path;   // hanya preview
+      _newPhotoPaths.add(savedPath);
     });
+  }
+
+  void _showMaxPhotoAlert() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Batas Foto'),
+        content: const Text('Maksimal 3 foto per laporan.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int _getTotalPhotoCount() {
+    return _existingPhotoPaths.length + _newPhotoPaths.length;
+  }
+
+  List<String> _getAllPhotoPaths() {
+    return [..._existingPhotoPaths, ..._newPhotoPaths];
   }
 
   Future<void> _pickDate() async {
@@ -109,20 +162,20 @@ class _EditCrimePageState extends State<EditCrimePage> {
     if (!_form.currentState!.validate()) return;
     _form.currentState!.save();
 
-    String? finalPhotoPath = _photoPath;
+    // ✅ UPDATE: Combine existing (non-removed) and new photos
+    final finalPhotoPaths = <String>[
+      ..._existingPhotoPaths.where((path) => !_removedPhotoPaths.contains(path)),
+      ..._newPhotoPaths,
+    ];
 
-    if (_tempImagePath != null) {
-      // Hapus file lama jika ada
-      if (_photoPath != null) {
-        try {
-          final f = File(_photoPath!);
-          if (await f.exists()) { 
-            await f.delete(); 
-          }
-        } catch (_) {}
-      }
-      // Salin foto baru ke app dir
-      finalPhotoPath = await _saveToAppDir(_tempImagePath!);
+    // Hapus foto yang di-remove
+    for (final removedPath in _removedPhotoPaths) {
+      try {
+        final file = File(removedPath);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (_) {}
     }
 
     final result = widget.initial == null
@@ -133,7 +186,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
             name: _name,
             date: _date,
             severity: _severity,
-            photoPath: finalPhotoPath, // TIDAK pakai !, biarkan null
+            photoPaths: finalPhotoPaths, // ✅ UPDATE: List of paths
           )
         : CrimeReport(
             id: widget.initial!.id,
@@ -144,17 +197,52 @@ class _EditCrimePageState extends State<EditCrimePage> {
             date: _date,
             severity: _severity,
             resolved: widget.initial!.resolved,
-            photoPath: finalPhotoPath, // TIDAK pakai !, biarkan null
+            photoPaths: finalPhotoPaths, // ✅ UPDATE: List of paths
           );
 
     if (!mounted) return;
     Navigator.pop(context, result);
   }
 
-  void _removePhoto() {
+  // ✅ UPDATE: Remove photo methods
+  void _removeExistingPhoto(int index) {
     setState(() {
-      _tempImagePath = null;
-      _photoPath = null;
+      final removedPath = _existingPhotoPaths[index];
+      _existingPhotoPaths.removeAt(index);
+      _removedPhotoPaths.add(removedPath);
+    });
+  }
+
+  void _removeNewPhoto(int index) {
+    setState(() {
+      final removedPath = _newPhotoPaths[index];
+      _newPhotoPaths.removeAt(index);
+      // Hapus file fisik untuk foto baru yang belum disimpan
+      try {
+        final file = File(removedPath);
+        if (file.existsSync()) {
+          file.delete();
+        }
+      } catch (_) {}
+    });
+  }
+
+  void _removeAllPhotos() {
+    setState(() {
+      // Pindahkan semua existing photos ke removed
+      _removedPhotoPaths.addAll(_existingPhotoPaths);
+      _existingPhotoPaths.clear();
+      
+      // Hapus file fisik untuk new photos
+      for (final path in _newPhotoPaths) {
+        try {
+          final file = File(path);
+          if (file.existsSync()) {
+            file.delete();
+          }
+        } catch (_) {}
+      }
+      _newPhotoPaths.clear();
     });
   }
 
@@ -176,6 +264,8 @@ class _EditCrimePageState extends State<EditCrimePage> {
   Widget build(BuildContext context) {
     final isEdit = widget.initial != null;
     final theme = Theme.of(context);
+    final allPhotos = _getAllPhotoPaths();
+    final totalPhotos = _getTotalPhotoCount();
 
     return Scaffold(
       appBar: AppBar(
@@ -246,7 +336,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
 
                         const SizedBox(height: 14),
 
-                        // ===== Foto Section =====
+                        // ✅ UPDATE: Multiple Photos Section
                         Card(
                           margin: const EdgeInsets.only(top: 8),
                           child: Padding(
@@ -254,72 +344,115 @@ class _EditCrimePageState extends State<EditCrimePage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                Text('Foto (opsional)', style: Theme.of(context).textTheme.labelLarge),
+                                Row(
+                                  children: [
+                                    Text('Foto (maks. 3)', style: Theme.of(context).textTheme.labelLarge),
+                                    const Spacer(),
+                                    Text(
+                                      '$totalPhotos/3',
+                                      style: TextStyle(
+                                        color: totalPhotos >= _maxPhotos ? Colors.red : Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                                 const SizedBox(height: 8),
 
-                                AspectRatio(
-                                  aspectRatio: 16 / 9,
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: Builder(
-                                      builder: (_) {
-                                        final pathToShow = _tempImagePath ?? _photoPath;
-                                        if (pathToShow == null) {
-                                          return Container(
-                                            alignment: Alignment.center,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .surfaceVariant
-                                                .withOpacity(0.5),
-                                            child: Column(
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                Icon(Icons.photo, size: 48, color: Colors.grey[600]),
-                                                const SizedBox(height: 8),
-                                                const Text('Tidak ada foto'),
-                                              ],
+                                // Photo Grid
+                                if (allPhotos.isNotEmpty) ...[
+                                  GridView.builder(
+                                    shrinkWrap: true,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 3,
+                                      crossAxisSpacing: 8,
+                                      mainAxisSpacing: 8,
+                                      childAspectRatio: 1,
+                                    ),
+                                    itemCount: allPhotos.length,
+                                    itemBuilder: (context, index) {
+                                      final path = allPhotos[index];
+                                      final isExisting = index < _existingPhotoPaths.length;
+                                      
+                                      return Stack(
+                                        children: [
+                                          Container(
+                                            decoration: BoxDecoration(
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: Colors.grey.shade300),
                                             ),
-                                          );
-                                        }
-                                        return GestureDetector(
-                                          onTap: () {
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute(
-                                                builder: (_) => _FullscreenImage(path: pathToShow),
-                                              ),
-                                            );
-                                          },
-                                          child: Image.file(
-                                            File(pathToShow),
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) => Container(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .surfaceVariant
-                                                  .withOpacity(0.5),
-                                              alignment: Alignment.center,
-                                              child: Column(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Icon(Icons.error_outline, size: 48, color: Colors.grey[600]),
-                                                  const SizedBox(height: 8),
-                                                  const Text('Gagal memuat gambar'),
-                                                ],
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(8),
+                                              child: Image.file(
+                                                File(path),
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) => Container(
+                                                  color: Colors.grey.shade200,
+                                                  child: const Icon(Icons.error),
+                                                ),
                                               ),
                                             ),
                                           ),
-                                        );
-                                      },
+                                          Positioned(
+                                            top: 4,
+                                            right: 4,
+                                            child: GestureDetector(
+                                              onTap: () {
+                                                if (isExisting) {
+                                                  _removeExistingPhoto(index);
+                                                } else {
+                                                  _removeNewPhoto(index - _existingPhotoPaths.length);
+                                                }
+                                              },
+                                              child: Container(
+                                                padding: const EdgeInsets.all(4),
+                                                decoration: const BoxDecoration(
+                                                  color: Colors.red,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                child: const Icon(
+                                                  Icons.close,
+                                                  size: 16,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+
+                                // Empty State
+                                if (allPhotos.isEmpty)
+                                  Container(
+                                    height: 100,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      color: Colors.grey.shade100,
+                                      border: Border.all(color: Colors.grey.shade300),
+                                    ),
+                                    child: const Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.photo_library, size: 32, color: Colors.grey),
+                                        SizedBox(height: 8),
+                                        Text('Tidak ada foto'),
+                                      ],
                                     ),
                                   ),
-                                ),
 
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 12),
+
+                                // Action Buttons
                                 Row(
                                   children: [
                                     Expanded(
                                       child: OutlinedButton.icon(
-                                        onPressed: _pickFromCamera,
+                                        onPressed: totalPhotos >= _maxPhotos ? null : _pickFromCamera,
                                         icon: const Icon(Icons.photo_camera),
                                         label: const Text('Kamera'),
                                       ),
@@ -327,7 +460,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: OutlinedButton.icon(
-                                        onPressed: _pickFromGallery,
+                                        onPressed: totalPhotos >= _maxPhotos ? null : _pickFromGallery,
                                         icon: const Icon(Icons.photo_library),
                                         label: const Text('Galeri'),
                                       ),
@@ -335,12 +468,15 @@ class _EditCrimePageState extends State<EditCrimePage> {
                                   ],
                                 ),
 
-                                if (_tempImagePath != null || _photoPath != null) ...[
-                                  const SizedBox(height: 4),
-                                  TextButton.icon(
-                                    onPressed: _removePhoto,
+                                if (allPhotos.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: _removeAllPhotos,
                                     icon: const Icon(Icons.delete_outline),
-                                    label: const Text('Hapus Foto'),
+                                    label: const Text('Hapus Semua Foto'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                    ),
                                   ),
                                 ],
                               ],
@@ -384,26 +520,6 @@ class _EditCrimePageState extends State<EditCrimePage> {
               ),
             );
           },
-        ),
-      ),
-    );
-  }
-}
-
-class _FullscreenImage extends StatelessWidget {
-  const _FullscreenImage({required this.path});
-  final String path;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(backgroundColor: Colors.black, iconTheme: const IconThemeData(color: Colors.white)),
-      body: Center(
-        child: InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 4.0,
-          child: Image.file(File(path), fit: BoxFit.contain),
         ),
       ),
     );

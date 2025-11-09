@@ -20,92 +20,73 @@ class _ViewCrimePageState extends State<ViewCrimePage> {
   void initState() {
     super.initState();
     data = widget.item;
-    _checkImagePath();  
+    _checkImagePaths();  // ✅ UPDATE: check multiple photos
   }
 
-  Future<void> _checkImagePath() async {
-    final path = data.photoPath;
-    if (path != null && File(path).existsSync()) {
-      print('Image path is valid: $path');
-    } else {
-      print('Image path is invalid or missing');
+  Future<void> _checkImagePaths() async {
+    for (final path in data.photoPaths) {
+      if (File(path).existsSync()) {
+        print('Image path is valid: $path');
+      } else {
+        print('Image path is invalid or missing: $path');
+      }
     }
   }
 
- Future<void> _edit() async {
-  final updated = await Navigator.push<CrimeReport>(
-    context,
-    MaterialPageRoute(builder: (_) => EditCrimePage(initial: data)),
-  );
+  Future<void> _edit() async {
+    final updated = await Navigator.push<CrimeReport>(
+      context,
+      MaterialPageRoute(builder: (_) => EditCrimePage(initial: data)),
+    );
 
-  if (updated != null) {
-    await repo.update(updated);
-    if (!mounted) return;
-    setState(() => data = updated);
-    // 🔥 beri sinyal ke halaman sebelumnya (HomePage)
-    Navigator.pop(context, updated);
+    if (updated != null) {
+      await repo.update(updated);
+      if (!mounted) return;
+      setState(() => data = updated);
+      Navigator.pop(context, updated);
+    }
   }
-}
-
-  // void _notify(String msg) {
-  //   if (!mounted) return;
-  //   final messenger = ScaffoldMessenger.of(context);
-  //   messenger.removeCurrentSnackBar();
-  //   messenger.showSnackBar(
-  //     SnackBar(
-  //       content: Text(msg),
-  //       behavior: SnackBarBehavior.floating,
-  //       duration: const Duration(milliseconds: 1600),
-  //     ),
-  //   );
-  // }
-  
 
   Future<void> _delete() async {
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (_) => AlertDialog(
-      title: const Text('Delete report?'),
-      content: const Text('This action cannot be undone.'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-        TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-      ],
-    ),
-  );
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete report?'),
+        content: const Text('This action cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+        ],
+      ),
+    );
 
-  // batal? stop di sini
-  if (ok != true) return;
+    if (ok != true) return;
 
-  // hapus foto (kalau ada)
-  try {
-    final path = data.photoPath;
-    if (path != null) {
-      final f = File(path);
-      if (await f.exists()) { await f.delete(); }
+    // ✅ UPDATE: Delete semua foto yang terkait
+    for (final photoPath in data.photoPaths) {
+      try {
+        final f = File(photoPath);
+        if (await f.exists()) { 
+          await f.delete(); 
+        }
+      } catch (_) { /* optional log */ }
     }
-  } catch (_) { /* optional log */ }
 
-  // hapus record di DB (sekali saja)
-  await repo.delete(data.id);
+    await repo.delete(data.id);
 
-  if (!mounted) return;
+    if (!mounted) return;
 
-  // (opsional) beri notif singkat di halaman ini
-  ScaffoldMessenger.of(context).removeCurrentSnackBar();
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('Report deleted'),
-      behavior: SnackBarBehavior.floating,
-      duration: Duration(milliseconds: 1200),
-    ),
-  );
+    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Report deleted'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(milliseconds: 1200),
+      ),
+    );
 
-  // beri sedikit waktu agar snackbar sempat muncul (opsional)
-  await Future.delayed(const Duration(milliseconds: 200));
-
-  // balik ke HomePage dengan sinyal "hapus sukses"
-  Navigator.pop(context, true);
+    await Future.delayed(const Duration(milliseconds: 200));
+    Navigator.pop(context, true);
   }
 
   Color _sevColor(String s, BuildContext ctx) {
@@ -118,13 +99,84 @@ class _ViewCrimePageState extends State<ViewCrimePage> {
 
   static String _fmtDate(DateTime? d) {
     if (d == null) return '-';
-    // yyyy-mm-dd HH:mm
     final y = d.year.toString().padLeft(4, '0');
     final m = d.month.toString().padLeft(2, '0');
     final day = d.day.toString().padLeft(2, '0');
     final hh = d.hour.toString().padLeft(2, '0');
     final mm = d.minute.toString().padLeft(2, '0');
     return '$y-$m-$day $hh:$mm';
+  }
+
+  // ✅ ADD: Method untuk build photo gallery
+  Widget _buildPhotoGallery() {
+    if (data.photoPaths.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final validPhotos = data.photoPaths.where((path) {
+      final isFilePath = !path.startsWith('content://') && !path.startsWith('http');
+      return isFilePath && File(path).existsSync();
+    }).toList();
+
+    if (validPhotos.isEmpty) {
+      return Container(
+        height: 120,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Text('No photos available'),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            'Photos (${validPhotos.length})',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: 1,
+          ),
+          itemCount: validPhotos.length,
+          itemBuilder: (context, index) {
+            final path = validPhotos[index];
+            return GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => _FullscreenImage(path: path)),
+                );
+              },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.file(
+                  File(path),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: Colors.grey.shade200,
+                    child: const Icon(Icons.error),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
   }
 
   @override
@@ -158,7 +210,7 @@ class _ViewCrimePageState extends State<ViewCrimePage> {
                           child: Icon(Icons.report, color: _sevColor(data.severity, context)),
                         ),
                         const SizedBox(width: 12),
-                        Expanded( // ✅ sekarang valid, parent-nya Row
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -181,6 +233,12 @@ class _ViewCrimePageState extends State<ViewCrimePage> {
                                     backgroundColor: (data.resolved ? Colors.green : Colors.orange).withOpacity(0.1),
                                     side: BorderSide(color: (data.resolved ? Colors.green : Colors.orange).withOpacity(0.3)),
                                   ),
+                                  if (data.photoPaths.isNotEmpty) 
+                                    Chip(
+                                      label: Text('${data.photoPaths.length} photos'),
+                                      backgroundColor: Colors.blue.withOpacity(0.1),
+                                      side: BorderSide(color: Colors.blue.withOpacity(0.3)),
+                                    ),
                                 ],
                               ),
                             ],
@@ -191,6 +249,7 @@ class _ViewCrimePageState extends State<ViewCrimePage> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                
                 // Details card
                 Card(
                   elevation: 0,
@@ -209,58 +268,18 @@ class _ViewCrimePageState extends State<ViewCrimePage> {
                     ),
                   ),
                 ),
-                  if (data.photoPath != null && data.photoPath!.isNotEmpty) ...[
-                    Builder(
-                      builder: (ctx) {
-                        final path = data.photoPath!;
-                        // Pastikan ini path file lokal (bukan content://)
-                        final isFilePath = !path.startsWith('content://') && !path.startsWith('http');
-                        final file = File(path);
-
-                        // Cek existence secara synchronous (lebih sederhana)
-                        final exists = isFilePath && file.existsSync();
-
-                        if (!exists) {
-                          // fallback tampilan kalau file tidak ada
-                          return Container(
-                            height: 220,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: Theme.of(ctx).colorScheme.surfaceVariant.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text('Image unavailable'),
-                          );
-                        }
-
-                        // Render aman + errorBuilder supaya tidak crash bila decode gagal
-                        return ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: GestureDetector(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => _FullscreenImage(path: path)),
-                              );
-                            },
-                            child: Image.file(
-                              file,
-                              fit: BoxFit.cover,
-                              height: 220,
-                              width: double.infinity,
-                              errorBuilder: (_, __, ___) => Container(
-                                height: 220,
-                                alignment: Alignment.center,
-                                color: Theme.of(ctx).colorScheme.surfaceVariant.withOpacity(0.5),
-                                child: const Text('Image error'),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
+                
+                // ✅ UPDATE: Photo gallery section
+                if (data.photoPaths.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    elevation: 0,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: _buildPhotoGallery(),
                     ),
-                    const SizedBox(height: 12),
-                  ],
+                  ),
+                ],
               ],
             ),
           ),

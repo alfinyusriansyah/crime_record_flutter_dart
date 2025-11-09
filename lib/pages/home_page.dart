@@ -58,12 +58,6 @@ class _HomePageState extends State<HomePage> {
     _loadInitialData();
   }
 
-  // Future<void> _printCrimeReports() async {
-  //   final reports = await repo.search();
-  //   for (final report in reports) {
-  //     print('ID: ${report.id}, Path: ${report.photoPath}');
-  //   }
-  // }
 
     Future<void> _delete(CrimeReport c) async {
     final ok = await showDialog<bool>(

@@ -1,0 +1,29 @@
+  Future<int> fixInvalidPhotoPaths() async {
+    final db = await _db;
+    final rows = await db.query(
+      'crime_reports',
+      columns: ['id', 'photo_path'],
+    );
+
+    int fixed = 0;
+    for (final r in rows) {
+      final id = r['id'] as String;
+      final path = r['photo_path'] as String?;
+
+      if (path == null || path.trim().isEmpty) continue;
+
+      final isContentUri = path.startsWith('content://'); // tidak bisa dipakai langsung
+      final exists = !isContentUri && File(path).existsSync();
+
+      if (!exists) {
+        await db.update(
+          'crime_reports',
+          {'photo_path': null},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        fixed++;
+      }
+    }
+    return fixed;
+  }

@@ -40,6 +40,10 @@ dependencies:
   collection: ^1.19.1
   intl: ^0.20.2
   image_picker: ^1.1.2
+  excel: ^3.0.0
+  permission_handler: ^11.0.1
+  open_file: ^3.3.3
+  share_plus: ^8.0.0
 
   # Tambahkan dependensi berikut
 

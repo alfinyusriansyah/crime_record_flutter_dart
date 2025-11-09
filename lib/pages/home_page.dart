@@ -4,8 +4,10 @@ import '../models/crime_report.dart';
 import '../widgets/crime_tile.dart';
 import 'edit_crime_page.dart';
 import 'view_crime_page.dart';
-import '../pages/test_large_data_page.dart';
+// import '../pages/test_large_data_page.dart';
 import 'dart:io';
+// import '../services/export_service.dart';
+import 'export_page.dart';
 
 enum _NoticeType { success, info, warning, error }
 
@@ -441,6 +443,16 @@ class _HomePageState extends State<HomePage> {
           //   icon: const Icon(Icons.data_usage),
           //   tooltip: 'Test Data',
           // ),
+
+          IconButton(
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(
+                builder: (context) => const ExportPage(),
+              ));
+            },
+            icon: const Icon(Icons.import_export),
+            tooltip: 'Export Data',
+          ),
         ],
       ),
     );

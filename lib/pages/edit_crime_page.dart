@@ -19,7 +19,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
   late DateTime _date;
 
   // Foto
-   List<String> _photoPaths = [];    
+  String? _photoPath;          // foto lama (dari initial)    
   String? _tempImagePath;       // foto sementara (belum disimpan)
   final _picker = ImagePicker();
 
@@ -33,46 +33,38 @@ class _EditCrimePageState extends State<EditCrimePage> {
     _name      = c?.name ?? '';
     _severity  = c?.severity ?? 'medium';
     _date      = c?.date ?? DateTime.now();
-     _photoPaths = List.from(c?.photoPaths ?? []);     // foto lama
-    _tempImagePath = null;         // preview baru (jika user pilih)
+    _photoPath = c?.photoPath;   // foto lama (jika ada)
+    _tempImagePath = null;       // preview baru (jika user pilih)
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkAndPromptRepickIfMissing());
   }
 
-    Future<void> _pickImages() async {
-    final pickedFiles = await _picker.pickMultiImage(imageQuality: 85);
-    if (pickedFiles != null) {
-      setState(() {
-        _photoPaths.addAll(pickedFiles.map((e) => e.path)); // Menambahkan foto yang dipilih
-      });
+  Future<void> _checkAndPromptRepickIfMissing() async {
+    if (_photoPath == null) return;
+    final ok = await File(_photoPath!).exists();
+    if (!ok && mounted) {
+      _photoPath = null; // buang referensi lama
+      // prompt re-pick
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Foto tidak ditemukan'),
+          content: const Text('File foto lama tidak tersedia. Pilih foto baru?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Nanti')),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _pickFromGallery();
+              },
+              child: const Text('Pilih Sekarang'),
+            ),
+          ],
+        ),
+      );
     }
   }
 
-  Future<void> _checkAndPromptRepickIfMissing() async {
-  if (_photoPaths == null) return;
-  final ok = await File(_photoPaths!).exists();
-  if (!ok && mounted) {
-    _photoPaths = null; // buang referensi lama
-    // prompt re-pick
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Foto tidak ditemukan'),
-        content: const Text('File foto lama tidak tersedia. Pilih foto baru?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Nanti')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _pickFromGallery(); // atau _pickFromCamera();
-            },
-            child: const Text('Pilih Sekarang'),
-          ),
-        ],
-      ),
-    );
-  }
-}
   Future<String> _saveToAppDir(String sourcePath) async {
     final dir = await getApplicationDocumentsDirectory();
     final fileName = 'crime_${DateTime.now().millisecondsSinceEpoch}${p.extension(sourcePath)}';
@@ -114,22 +106,24 @@ class _EditCrimePageState extends State<EditCrimePage> {
   }
 
   void _save() async {
-  if (!_form.currentState!.validate()) return;
-  _form.currentState!.save();
+    if (!_form.currentState!.validate()) return;
+    _form.currentState!.save();
 
-  List<String> finalPhotoPaths = [];
+    String? finalPhotoPath = _photoPath;
 
-  if (_tempImagePath != null) {
-    // (opsional) hapus file lama
-    if (_photoPaths != null) {
-      try {
-        final f = File(_photoPaths!);
-        if (await f.exists()) { await f.delete(); }
-      } catch (_) {}
+    if (_tempImagePath != null) {
+      // Hapus file lama jika ada
+      if (_photoPath != null) {
+        try {
+          final f = File(_photoPath!);
+          if (await f.exists()) { 
+            await f.delete(); 
+          }
+        } catch (_) {}
+      }
+      // Salin foto baru ke app dir
+      finalPhotoPath = await _saveToAppDir(_tempImagePath!);
     }
-    // salin foto baru ke app dir
-    finalPhotoPath = await _saveToAppDir(_tempImagePath!);
-  }
 
     final result = widget.initial == null
         ? CrimeReport.create(
@@ -139,7 +133,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
             name: _name,
             date: _date,
             severity: _severity,
-            photoPaths: finalPhotoPath,
+            photoPath: finalPhotoPath, // TIDAK pakai !, biarkan null
           )
         : CrimeReport(
             id: widget.initial!.id,
@@ -150,11 +144,18 @@ class _EditCrimePageState extends State<EditCrimePage> {
             date: _date,
             severity: _severity,
             resolved: widget.initial!.resolved,
-            photoPaths: finalPhotoPath,
+            photoPath: finalPhotoPath, // TIDAK pakai !, biarkan null
           );
 
     if (!mounted) return;
     Navigator.pop(context, result);
+  }
+
+  void _removePhoto() {
+    setState(() {
+      _tempImagePath = null;
+      _photoPath = null;
+    });
   }
 
   InputDecoration _inputDecoration(String label, {IconData? icon}) {
@@ -203,16 +204,16 @@ class _EditCrimePageState extends State<EditCrimePage> {
                       children: [
                         TextFormField(
                           initialValue: _name,
-                          decoration: _inputDecoration('Nama Tersangka', icon: Icons.title),
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Name is required' : null,
+                          decoration: _inputDecoration('Nama Tersangka', icon: Icons.person),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Nama tersangka harus diisi' : null,
                           onSaved: (v) => _name = v!.trim(),
                         ),
                         const SizedBox(height: 14),
 
-                         TextFormField(
+                        TextFormField(
                           initialValue: _title,
-                          decoration: _inputDecoration('Nama Kasus', icon: Icons.person),
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Name Case is required' : null,
+                          decoration: _inputDecoration('Nama Kasus', icon: Icons.title),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Nama kasus harus diisi' : null,
                           onSaved: (v) => _title = v!.trim(),
                         ),
                         const SizedBox(height: 14),
@@ -234,18 +235,18 @@ class _EditCrimePageState extends State<EditCrimePage> {
 
                         DropdownButtonFormField<String>(
                           value: _severity,
-                          decoration: _inputDecoration('Severity', icon: Icons.warning_amber),
+                          decoration: _inputDecoration('Tingkat Keparahan', icon: Icons.warning_amber),
                           items: const [
-                            DropdownMenuItem(value: 'low', child: Text('Low')),
-                            DropdownMenuItem(value: 'medium', child: Text('Medium')),
-                            DropdownMenuItem(value: 'high', child: Text('High')),
+                            DropdownMenuItem(value: 'low', child: Text('Rendah')),
+                            DropdownMenuItem(value: 'medium', child: Text('Sedang')),
+                            DropdownMenuItem(value: 'high', child: Text('Tinggi')),
                           ],
                           onChanged: (v) => setState(() => _severity = v ?? 'medium'),
                         ),
 
                         const SizedBox(height: 14),
 
-                        // ===== Preview & Actions =====
+                        // ===== Foto Section =====
                         Card(
                           margin: const EdgeInsets.only(top: 8),
                           child: Padding(
@@ -253,7 +254,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                Text('Foto (optional)', style: Theme.of(context).textTheme.labelLarge),
+                                Text('Foto (opsional)', style: Theme.of(context).textTheme.labelLarge),
                                 const SizedBox(height: 8),
 
                                 AspectRatio(
@@ -270,7 +271,14 @@ class _EditCrimePageState extends State<EditCrimePage> {
                                                 .colorScheme
                                                 .surfaceVariant
                                                 .withOpacity(0.5),
-                                            child: const Text('Tidak ada foto dipilih'),
+                                            child: Column(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Icon(Icons.photo, size: 48, color: Colors.grey[600]),
+                                                const SizedBox(height: 8),
+                                                const Text('Tidak ada foto'),
+                                              ],
+                                            ),
                                           );
                                         }
                                         return GestureDetector(
@@ -290,7 +298,14 @@ class _EditCrimePageState extends State<EditCrimePage> {
                                                   .surfaceVariant
                                                   .withOpacity(0.5),
                                               alignment: Alignment.center,
-                                              child: const Text('Gambar tidak dapat ditampilkan'),
+                                              child: Column(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(Icons.error_outline, size: 48, color: Colors.grey[600]),
+                                                  const SizedBox(height: 8),
+                                                  const Text('Gagal memuat gambar'),
+                                                ],
+                                              ),
                                             ),
                                           ),
                                         );
@@ -306,7 +321,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
                                       child: OutlinedButton.icon(
                                         onPressed: _pickFromCamera,
                                         icon: const Icon(Icons.photo_camera),
-                                        label: const Text('Camera'),
+                                        label: const Text('Kamera'),
                                       ),
                                     ),
                                     const SizedBox(width: 8),
@@ -314,7 +329,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
                                       child: OutlinedButton.icon(
                                         onPressed: _pickFromGallery,
                                         icon: const Icon(Icons.photo_library),
-                                        label: const Text('Gallery'),
+                                        label: const Text('Galeri'),
                                       ),
                                     ),
                                   ],
@@ -323,15 +338,9 @@ class _EditCrimePageState extends State<EditCrimePage> {
                                 if (_tempImagePath != null || _photoPath != null) ...[
                                   const SizedBox(height: 4),
                                   TextButton.icon(
-                                    onPressed: () {
-                                      setState(() {
-                                        _tempImagePath = null; // hapus preview baru
-                                        // Jika juga ingin sembunyikan foto lama dari UI:
-                                        // _photoPath = null;
-                                      });
-                                    },
+                                    onPressed: _removePhoto,
                                     icon: const Icon(Icons.delete_outline),
-                                    label: const Text('Remove photo (preview)'),
+                                    label: const Text('Hapus Foto'),
                                   ),
                                 ],
                               ],
@@ -343,7 +352,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
 
                         ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                          title: const Text('Date & Time'),
+                          title: const Text('Tanggal & Waktu'),
                           subtitle: Text(
                             '${_date.toLocal()}',
                             style: theme.textTheme.bodyMedium?.copyWith(
@@ -353,7 +362,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
                           trailing: FilledButton.icon(
                             onPressed: _pickDate,
                             icon: const Icon(Icons.calendar_today, size: 18),
-                            label: const Text('Change'),
+                            label: const Text('Ubah'),
                           ),
                         ),
 
@@ -361,7 +370,7 @@ class _EditCrimePageState extends State<EditCrimePage> {
                         FilledButton.icon(
                           onPressed: _save,
                           icon: const Icon(Icons.save),
-                          label: const Text('Save Report'),
+                          label: const Text('Simpan Laporan'),
                           style: FilledButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),

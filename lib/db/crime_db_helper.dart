@@ -6,16 +6,34 @@ class CrimeDbHelper {
   CrimeDbHelper._();
   static final CrimeDbHelper instance = CrimeDbHelper._();
 
-  static const _dbName = 'crime.db';
-  static const _dbVersion = 4; // ↑ bump jika ubah skema
+  static const _dbName = 'crime_2.db';
+  static const _dbVersion = 5;
 
   Database? _db;
 
   Future<Database> get database async => _db ??= await _open();
 
+  // ✅ METHOD UNTUK RESET DATABASE
+  Future<void> resetDatabase() async {
+    final dbDir = await getDatabasesPath();
+    final path = p.join(dbDir, _dbName);
+    
+    // Tutup koneksi database yang ada
+    if (_db != null) {
+      await _db!.close();
+      _db = null;
+    }
+    
+    // Hapus file database
+    await deleteDatabase(path);
+    
+    // Buka database baru
+    _db = await _open();
+  }
+
   Future<Database> _open() async {
     try {
-      final dbDir = await getDatabasesPath();             // ✅ aman untuk Android/iOS
+      final dbDir = await getDatabasesPath();
       final path = p.join(dbDir, _dbName);
 
       return await openDatabase(
@@ -39,8 +57,7 @@ class CrimeDbHelper {
           await db.execute('CREATE INDEX IF NOT EXISTS idx_crime_date ON crime_reports(date)');
         },
         onUpgrade: (db, oldV, newV) async {
-          // ✅ upgrade bertahap + guard kolom agar tidak crash kalau sudah ada
-          if (oldV < 2) {
+          if (oldV < 3) {
             final hasName = await _columnExists(db, 'crime_reports', 'name');
             if (!hasName) {
               await db.execute('ALTER TABLE crime_reports ADD COLUMN name TEXT DEFAULT ""');
@@ -55,9 +72,6 @@ class CrimeDbHelper {
         },
       );
     } catch (e, st) {
-      // 👇 bantu trace error asli di logcat
-      // (bisa print atau menggunakan logger kamu)
-      // ignore: avoid_print
       print('DB OPEN ERROR: $e\n$st');
       rethrow;
     }
@@ -71,5 +85,37 @@ class CrimeDbHelper {
       }
     }
     return false;
+  }
+
+  // ✅ METHOD UNTUK CEK VERSI DATABASE
+  Future<int?> getDatabaseVersion() async {
+    final db = await database;
+    try {
+      final result = await db.rawQuery('PRAGMA user_version');
+      return result.first['user_version'] as int?;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ✅ METHOD UNTUK CEK STRUKTUR TABEL
+  Future<void> debugTableStructure() async {
+    final db = await database;
+    print('=== DATABASE DEBUG INFO ===');
+    
+    // Cek versi
+    final version = await getDatabaseVersion();
+    print('Database Version: $version');
+    
+    // Cek struktur tabel crime_reports
+    final tableInfo = await db.rawQuery('PRAGMA table_info(crime_reports)');
+    print('Table crime_reports structure:');
+    for (final column in tableInfo) {
+      print('  ${column['name']} - ${column['type']}');
+    }
+    
+    // Cek data yang ada
+    final count = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM crime_reports'));
+    print('Total records: $count');
   }
 }

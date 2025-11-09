@@ -9,8 +9,7 @@ class CrimeReport {
   DateTime date;
   String severity; // low | medium | high
   bool resolved;
-  List<String> photoPaths; // Menyimpan beberapa path gambar
-  String? thumbnail; // Menyimpan path foto thumbnail
+  String? photoPath; // Bisa null
 
   CrimeReport({
     required this.id,
@@ -21,9 +20,7 @@ class CrimeReport {
     required this.date,
     required this.severity,
     this.resolved = false,
-    this.photoPaths = const [],
-    this.thumbnail,
-
+    this.photoPath, // Bisa null
   });
 
   factory CrimeReport.create({
@@ -33,8 +30,7 @@ class CrimeReport {
     required String name,
     required DateTime date,
     String severity = 'medium',
-    required List<String> photoPaths,
-    String? thumbnail,
+    String? photoPath, // Bisa null
   }) {
     return CrimeReport(
       id: const Uuid().v4(),
@@ -45,8 +41,7 @@ class CrimeReport {
       date: date,
       severity: severity,
       resolved: false,
-      photoPaths: photoPaths,
-      thumbnail: thumbnail,
+      photoPath: photoPath, // Bisa null
     );
   }
 
@@ -59,8 +54,7 @@ class CrimeReport {
         'date': date.toIso8601String(),
         'severity': severity,
         'resolved': resolved ? 1 : 0,
-        'photo_path': photoPaths.join(','), // Menggabungkan path gambar menjadi satu string
-        'thumbnail': thumbnail,
+        'photo_path': photoPath, // Bisa null
       };
 
   factory CrimeReport.fromMap(Map<String, dynamic> m) => CrimeReport(
@@ -72,21 +66,20 @@ class CrimeReport {
         date: DateTime.parse(m['date'] as String),
         severity: (m['severity'] ?? 'medium') as String,
         resolved: (m['resolved'] ?? 0) == 1,
-        photoPaths: (m['photo_paths'] as String?)?.split(',') ?? [],
-        thumbnail: m['thumbnail'],
+        photoPath: m['photo_path'] as String?, // Bisa null
       );
 
-    CrimeReport copyWith({
-      String? id,
-      String? name,
-      String? title,
-      String? description,
-      String? location,
-      DateTime? date,
-      String? severity,
-      bool? resolved,
-      List<String>? photoPaths
-    }) {
+  CrimeReport copyWith({
+    String? id,
+    String? name,
+    String? title,
+    String? description,
+    String? location,
+    DateTime? date,
+    String? severity,
+    bool? resolved,
+    String? photoPath, // Ubah ke String? untuk single path
+  }) {
     return CrimeReport(
       id: id ?? this.id,
       name: name ?? this.name,
@@ -96,8 +89,10 @@ class CrimeReport {
       date: date ?? this.date,
       severity: severity ?? this.severity,
       resolved: resolved ?? this.resolved,
-      photoPaths: photoPaths ?? this.photoPaths,
-      thumbnail: thumbnail ?? this.thumbnail
+      photoPath: photoPath ?? this.photoPath, // Gunakan photoPath langsung
     );
   }
+
+  // Helper method untuk cek apakah ada foto
+  bool get hasPhoto => photoPath != null && photoPath!.isNotEmpty;
 }

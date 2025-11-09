@@ -7,6 +7,7 @@ import 'db/crime_sqlite_repository.dart';
 import 'dart:async';
 
 
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
